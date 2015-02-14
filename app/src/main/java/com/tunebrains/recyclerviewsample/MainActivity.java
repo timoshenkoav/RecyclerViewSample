@@ -9,6 +9,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import com.bignerdranch.android.multiselector.MultiSelector;
+import com.bignerdranch.android.multiselector.SwappingHolder;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,6 +22,7 @@ import butterknife.InjectView;
 public class MainActivity extends ActionBarActivity {
     @InjectView(R.id.recycler_view)
     RecyclerView mRecyclerView;
+    private MultiSelector mMultiSelector = new MultiSelector();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,8 +41,9 @@ public class MainActivity extends ActionBarActivity {
         LinearLayoutManager mLayoutManager = new LinearLayoutManager(this);
         mRecyclerView.setLayoutManager(mLayoutManager);
 
+        mMultiSelector.setSelectable(true);
         // specify an adapter (see also next example)
-        DataSetAdapter mAdapter = new DataSetAdapter(getLayoutInflater(), createDataset());
+        DataSetAdapter mAdapter = new DataSetAdapter(getLayoutInflater(), createDataset(), mMultiSelector);
         mRecyclerView.setAdapter(mAdapter);
     }
 
@@ -53,6 +58,7 @@ public class MainActivity extends ActionBarActivity {
     private static class Data {
         private final String mTitle;
         private final String mSubTitle;
+        private boolean mChecked;
 
         private Data(String pTitle, String pSubTitle) {
             mTitle = pTitle;
@@ -66,42 +72,78 @@ public class MainActivity extends ActionBarActivity {
         public String getTitle() {
             return mTitle;
         }
+
+        public boolean isChecked() {
+            return mChecked;
+        }
+
+        public void setChecked(boolean pChecked) {
+            mChecked = pChecked;
+        }
     }
 
-    static class DataViewHolder extends RecyclerView.ViewHolder {
+    static class DataViewHolder extends SwappingHolder implements View.OnClickListener, View.OnLongClickListener {
 
+        private final MultiSelector mMultiSelector;
         @InjectView(R.id.title)
         TextView mTitle;
 
         @InjectView(R.id.sub_title)
         TextView mSubTitle;
 
-        public DataViewHolder(View itemView) {
-            super(itemView);
+
+        public DataViewHolder(View itemView, MultiSelector pMultiSelector) {
+            super(itemView, pMultiSelector);
+            mMultiSelector = pMultiSelector;
             ButterKnife.inject(this, itemView);
+            bindClick();
+        }
+
+        private void bindClick() {
+            itemView.setOnClickListener(this);
+            itemView.setOnLongClickListener(this);
+            itemView.setLongClickable(true);
         }
 
         public void bind(Data pD) {
             mTitle.setText(pD.getTitle());
             mSubTitle.setText(pD.getSubTitle());
         }
+
+        @Override
+        public void onClick(View v) {
+            if (mMultiSelector.tapSelection(this)) {
+                // Selection is on, so tapSelection() toggled item selection.
+            } else {
+                // Selection is off; handle normal item click here.
+            }
+
+        }
+
+        @Override
+        public boolean onLongClick(View v) {
+            mMultiSelector.setSelected(this, true);
+            return true;
+        }
     }
 
     static class DataSetAdapter extends RecyclerView.Adapter<DataViewHolder> {
         private final List<Data> mDataList;
+        private MultiSelector mMultiSelector;
         private LayoutInflater mLayoutInflater;
 
-        private DataSetAdapter(LayoutInflater pLayoutInflater, List<Data> pDataList) {
+        private DataSetAdapter(LayoutInflater pLayoutInflater, List<Data> pDataList, MultiSelector pMultiSelector) {
             mLayoutInflater = pLayoutInflater;
             mDataList = pDataList;
 
+            mMultiSelector = pMultiSelector;
         }
 
         @Override
         public DataViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             View content = mLayoutInflater.inflate(R.layout.list_item, parent, false);
 
-            return new DataViewHolder(content);
+            return new DataViewHolder(content, mMultiSelector);
         }
 
         @Override
