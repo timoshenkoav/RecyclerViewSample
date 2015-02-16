@@ -5,12 +5,15 @@ import android.support.v7.app.ActionBarActivity;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
 import com.bignerdranch.android.multiselector.MultiSelector;
 import com.bignerdranch.android.multiselector.SwappingHolder;
+import com.tunebrains.recyclertwowaygrid.TwoWayGridLayoutManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +56,33 @@ public class MainActivity extends ActionBarActivity {
             lDatas.add(new Data(String.format("Title %d", i), String.format("Subtitle %d", i)));
         }
         return lDatas;
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.custom:
+                initCustomRecyclerView();
+                return true;
+            case R.id.simple:
+                initSimpleRecyclerView();
+                return true;
+        }
+        return false;
+    }
+
+    private void initSimpleRecyclerView() {
+        mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+    }
+
+    private void initCustomRecyclerView() {
+        mRecyclerView.setLayoutManager(new TwoWayGridLayoutManager());
     }
 
     private static class Data {
@@ -158,6 +188,4 @@ public class MainActivity extends ActionBarActivity {
             return mDataList.size();
         }
     }
-
-
 }
