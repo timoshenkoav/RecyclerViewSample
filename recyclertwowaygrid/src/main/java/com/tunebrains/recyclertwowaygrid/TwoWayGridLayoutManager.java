@@ -13,8 +13,14 @@ import android.view.ViewGroup;
  */
 public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
     private static final String TAG = TwoWayGridLayoutManager.class.getName();
-    private static final int DEFAULT_COLUMN_COUNT = 1;
+    private static final int DEFAULT_COLUMN_COUNT = 6;
     private int mTotalColumnCount = DEFAULT_COLUMN_COUNT;
+    /* Fill Direction Constants */
+    private static final int DIRECTION_NONE = -1;
+    private static final int DIRECTION_START = 0;
+    private static final int DIRECTION_END = 1;
+    private static final int DIRECTION_UP = 2;
+    private static final int DIRECTION_DOWN = 3;
     private int mDecoratedChildWidth;
     private int mDecoratedChildHeight;
     private int mFirstVisiblePosition;
@@ -70,6 +76,7 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
         if (getChildCount() == 0) {
             mFirstVisiblePosition = 0;
             childLeft = childTop = 0;
+
         } else {
 
             if (getVisibleChildCount() >= getItemCount()) {
@@ -79,7 +86,43 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
                 final View topChild = getChildAt(0);
                 childLeft = getDecoratedLeft(topChild);
                 childTop = getDecoratedTop(topChild);
+                 /*
+             * Adjust the visible position if out of bounds in the
+             * new layout. This occurs when the new item count in an adapter
+             * is much smaller than it was before, and you are scrolled to
+             * a location where no items would exist.
+             */
+                int maxFirstRow = getTotalRowCount() - (mVisibleRowCount - 1);
+                int maxFirstCol = getTotalColumnCount() - (mVisibleColumnCount - 1);
+                boolean isOutOfRowBounds = getFirstVisibleRow() > maxFirstRow;
+                boolean isOutOfColBounds = getFirstVisibleColumn() > maxFirstCol;
+                if (isOutOfRowBounds || isOutOfColBounds) {
+                    int firstRow;
+                    if (isOutOfRowBounds) {
+                        firstRow = maxFirstRow;
+                    } else {
+                        firstRow = getFirstVisibleRow();
+                    }
+                    int firstCol;
+                    if (isOutOfColBounds) {
+                        firstCol = maxFirstCol;
+                    } else {
+                        firstCol = getFirstVisibleColumn();
+                    }
+                    mFirstVisiblePosition = firstRow * getTotalColumnCount() + firstCol;
 
+                    childLeft = getHorizontalSpace() - (mDecoratedChildWidth * mVisibleColumnCount);
+                    childTop = getVerticalSpace() - (mDecoratedChildHeight * mVisibleRowCount);
+
+                    //Correct cases where shifting to the bottom-right overscrolls the top-left
+                    // This happens on data sets too small to scroll in a direction.
+                    if (getFirstVisibleRow() == 0) {
+                        childTop = Math.min(childTop, 0);
+                    }
+                    if (getFirstVisibleColumn() == 0) {
+                        childLeft = Math.min(childLeft, 0);
+                    }
+                }
             }
         }
 
@@ -87,10 +130,10 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
         //Clear all attached views into the recycle bin
         detachAndScrapAttachedViews(recycler);
         //Fill the grid for the initial layout of views
-        fillGrid(childLeft, childTop, recycler);
+        fillGrid(DIRECTION_NONE, childLeft, childTop, recycler);
     }
 
-    private void fillGrid(int pChildLeft, int pChildTop, RecyclerView.Recycler pRecycler) {
+    private void fillGrid(int pDirection, int pChildLeft, int pChildTop, RecyclerView.Recycler pRecycler) {
         if (mFirstVisiblePosition < 0) mFirstVisiblePosition = 0;
         if (mFirstVisiblePosition >= getItemCount()) mFirstVisiblePosition = (getItemCount() - 1);
         SparseArray<View> viewCache = new SparseArray<View>(getChildCount());
@@ -101,6 +144,21 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
             startLeftOffset = getDecoratedLeft(topView);
             startTopOffset = getDecoratedTop(topView);
 
+            switch (pDirection) {
+                case DIRECTION_START:
+                    startLeftOffset -= mDecoratedChildWidth;
+                    break;
+                case DIRECTION_END:
+                    startLeftOffset += mDecoratedChildWidth;
+                    break;
+                case DIRECTION_UP:
+                    startTopOffset -= mDecoratedChildHeight;
+                    break;
+                case DIRECTION_DOWN:
+                    startTopOffset += mDecoratedChildHeight;
+                    break;
+            }
+            
             //Cache all views by their existing position, before updating counts
             for (int i = 0; i < getChildCount(); i++) {
                 int position = positionOfIndex(i);
@@ -113,6 +171,25 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
                 detachView(viewCache.valueAt(i));
             }
         }
+        /*
+         * Next, we advance the visible position based on the fill direction.
+         * DIRECTION_NONE doesn't advance the position in any direction.
+         */
+        switch (pDirection) {
+            case DIRECTION_START:
+                mFirstVisiblePosition--;
+                break;
+            case DIRECTION_END:
+                mFirstVisiblePosition++;
+                break;
+            case DIRECTION_UP:
+                mFirstVisiblePosition -= getTotalColumnCount();
+                break;
+            case DIRECTION_DOWN:
+                mFirstVisiblePosition += getTotalColumnCount();
+                break;
+        }
+
         int leftOffset = startLeftOffset;
         int topOffset = startTopOffset;
         for (int i = 0; i < getVisibleChildCount(); i++) {
@@ -138,7 +215,14 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
                 attachView(view);
                 viewCache.remove(nextPosition);
             }
-            leftOffset += mDecoratedChildWidth;
+            if (i % mVisibleColumnCount == (mVisibleColumnCount - 1)) {
+                leftOffset = startLeftOffset;
+                topOffset += mDecoratedChildHeight;
+
+            } else {
+                leftOffset += mDecoratedChildWidth;
+            }
+
 
         }
         for (int i = 0; i < viewCache.size(); i++) {
@@ -241,6 +325,168 @@ public class TwoWayGridLayoutManager extends RecyclerView.LayoutManager {
         }
 
         return maxRow;
+    }
+
+    @Override
+    public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
+        if (getChildCount() == 0) {
+            return 0;
+        }
+
+        //Take top measurements from the top-left child
+        final View topView = getChildAt(0);
+        //Take bottom measurements from the bottom-right child.
+        final View bottomView = getChildAt(getChildCount() - 1);
+
+        //Optimize the case where the entire data set is too small to scroll
+        int viewSpan = getDecoratedBottom(bottomView) - getDecoratedTop(topView);
+        if (viewSpan < getVerticalSpace()) {
+            //We cannot scroll in either direction
+            return 0;
+        }
+
+        int delta;
+        int maxRowCount = getTotalRowCount();
+        boolean topBoundReached = getFirstVisibleRow() == 0;
+        boolean bottomBoundReached = getLastVisibleRow() >= maxRowCount;
+        if (dy > 0) { // Contents are scrolling up
+            //Check against bottom bound
+            if (bottomBoundReached) {
+                //If we've reached the last row, enforce limits
+                int bottomOffset;
+                if (rowOfIndex(getChildCount() - 1) >= (maxRowCount - 1)) {
+                    //We are truly at the bottom, determine how far
+                    bottomOffset = getVerticalSpace() - getDecoratedBottom(bottomView)
+                            + getPaddingBottom();
+                } else {
+                    /*
+                     * Extra space added to account for allowing bottom space in the grid.
+                     * This occurs when the overlap in the last row is not large enough to
+                     * ensure that at least one element in that row isn't fully recycled.
+                     */
+                    bottomOffset = getVerticalSpace() - (getDecoratedBottom(bottomView)
+                            + mDecoratedChildHeight) + getPaddingBottom();
+                }
+
+                delta = Math.max(-dy, bottomOffset);
+            } else {
+                //No limits while the last row isn't visible
+                delta = -dy;
+            }
+        } else { // Contents are scrolling down
+            //Check against top bound
+            if (topBoundReached) {
+                int topOffset = -getDecoratedTop(topView) + getPaddingTop();
+
+                delta = Math.min(-dy, topOffset);
+            } else {
+                delta = -dy;
+            }
+        }
+
+        offsetChildrenVertical(delta);
+
+        if (dy > 0) {
+            if (getDecoratedBottom(topView) < 0 && !bottomBoundReached) {
+                fillGrid(DIRECTION_DOWN, recycler);
+            } else if (!bottomBoundReached) {
+                fillGrid(DIRECTION_NONE, recycler);
+            }
+        } else {
+            if (getDecoratedTop(topView) > 0 && !topBoundReached) {
+                fillGrid(DIRECTION_UP, recycler);
+            } else if (!topBoundReached) {
+                fillGrid(DIRECTION_NONE, recycler);
+            }
+        }
+
+        /*
+         * Return value determines if a boundary has been reached
+         * (for edge effects and flings). If returned value does not
+         * match original delta (passed in), RecyclerView will draw
+         * an edge effect.
+         */
+        return -delta;
+    }
+
+    private int rowOfIndex(int childIndex) {
+        int position = positionOfIndex(childIndex);
+
+        return position / getTotalColumnCount();
+    }
+
+    private int getFirstVisibleRow() {
+        return (mFirstVisiblePosition / getTotalColumnCount());
+    }
+
+    private int getLastVisibleRow() {
+        return getFirstVisibleRow() + mVisibleRowCount;
+    }
+
+    @Override
+    public int scrollHorizontallyBy(int dx, RecyclerView.Recycler recycler, RecyclerView.State state) {
+        if (getChildCount() == 0) {
+            return 0;
+        }
+        //Take leftmost measurements from the top-left child
+        final View topView = getChildAt(0);
+        //Take rightmost measurements from the top-right child
+        final View bottomView = getChildAt(mVisibleColumnCount - 1);
+
+        int viewSpan = getDecoratedRight(bottomView) - getDecoratedLeft(topView);
+        if (viewSpan < getHorizontalSpace()) {
+            //We cannot scroll in either direction
+            return 0;
+        }
+        int delta;
+        boolean leftBoundReached = getFirstVisibleColumn() == 0;
+        boolean rightBoundReached = getLastVisibleColumn() >= getTotalColumnCount();
+        if (dx > 0) { // Contents are scrolling left
+            //Check right bound
+            if (rightBoundReached) {
+                //If we've reached the last column, enforce limits
+                int rightOffset = getHorizontalSpace() - getDecoratedRight(bottomView) + getPaddingRight();
+                delta = Math.max(-dx, rightOffset);
+            } else {
+                //No limits while the last column isn't visible
+                delta = -dx;
+            }
+        } else { // Contents are scrolling right
+            //Check left bound
+            if (leftBoundReached) {
+                int leftOffset = -getDecoratedLeft(topView) + getPaddingLeft();
+                delta = Math.min(-dx, leftOffset);
+            } else {
+                delta = -dx;
+            }
+        }
+        offsetChildrenHorizontal(delta);
+        if (dx > 0) {
+            if (getDecoratedRight(topView) < 0 && !rightBoundReached) {
+                fillGrid(DIRECTION_END, recycler);
+            } else if (!rightBoundReached) {
+                fillGrid(DIRECTION_NONE, recycler);
+            }
+        } else {
+            if (getDecoratedLeft(topView) > 0 && !leftBoundReached) {
+                fillGrid(DIRECTION_START, recycler);
+            } else if (!leftBoundReached) {
+                fillGrid(DIRECTION_NONE, recycler);
+            }
+        }
+        return -delta;
+    }
+
+    private void fillGrid(int direction, RecyclerView.Recycler recycler) {
+        fillGrid(direction, 0, 0, recycler);
+    }
+
+    private int getLastVisibleColumn() {
+        return getFirstVisibleColumn() + mVisibleColumnCount;
+    }
+
+    private int getFirstVisibleColumn() {
+        return (mFirstVisiblePosition % getTotalColumnCount());
     }
 
     public static class LayoutParams extends RecyclerView.LayoutParams {

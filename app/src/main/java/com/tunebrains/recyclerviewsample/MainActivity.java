@@ -41,7 +41,7 @@ public class MainActivity extends ActionBarActivity {
         mRecyclerView.setHasFixedSize(true);
 
         // use a linear layout manager
-        LinearLayoutManager mLayoutManager = new LinearLayoutManager(this);
+        TwoWayGridLayoutManager mLayoutManager = new TwoWayGridLayoutManager();
         mRecyclerView.setLayoutManager(mLayoutManager);
 
         mMultiSelector.setSelectable(true);
